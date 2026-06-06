@@ -19,10 +19,7 @@ Hyperliquid restricts access to its interface based on wallet addresses and geog
 - Withdraw vault funds
 - Repay or withdraw portfolio borrow/lend positions
 - Undelegate staked HYPE
-- Transfer DEX collateral
-- Transfer spot USDC to perps
-- Withdraw staking rewards
-- Withdraw USDC to Arbitrum
+- Withdraw Assets
 
 Connect your wallet or paste any address to inspect it in read-only mode. All actions are signed locally — we never access your keys or funds.
 
