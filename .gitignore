@@ -1,0 +1,8 @@
+/node_modules
+/config.js
+.idea
+.next
+.DS_Store
+*.log
+*.env
+.claude

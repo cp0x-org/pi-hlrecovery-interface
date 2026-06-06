@@ -1,0 +1,6 @@
+services:
+  pi-hlrecovery-interface:
+    image: cp0x/pi-hlrecovery-interface:0.1.0
+    ports:
+      - "3013:3000"
+    restart: unless-stopped

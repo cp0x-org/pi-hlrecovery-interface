@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --background: #16161f;
+  --foreground: #eeeeee;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #39454b inset;
+  -webkit-text-fill-color: #eeeeee;
+  caret-color: #eeeeee;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+@keyframes kanban-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-kanban-in {
+  animation: kanban-in 420ms ease-out both;
+}
+
+button:hover {
+  cursor: pointer;
+}
+
+button:disabled:hover {
+  cursor: not-allowed;
+}
