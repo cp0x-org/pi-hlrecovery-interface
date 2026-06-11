@@ -519,7 +519,8 @@ function buildVaultItems(
       const vaultName =
         vaultNameByAddress.get(vault.vaultAddress) ??
         `${vault.vaultAddress.slice(0, 6)}...${vault.vaultAddress.slice(-4)}`;
-      const withdrawUsd = decimalUsdToMicros(vault.equity);
+      // Subtract 1 micro to guard against the API rounding equity up (on-chain uses floor).
+      const withdrawUsd = Math.max(0, decimalUsdToMicros(vault.equity) - 1);
       const canWithdraw = !locked && withdrawUsd > 0;
 
       return {

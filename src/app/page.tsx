@@ -14,6 +14,7 @@ import {
 import { arbitrum } from "wagmi/chains";
 import { RecoveryKanban } from "@/components/recovery-kanban";
 import { useToasts } from "@/components/toasts";
+import { HyperliquidError } from "@nktkas/hyperliquid";
 import {
   cancelHyperliquidOrders,
   placeHyperliquidMarketOrders,
@@ -471,6 +472,18 @@ export default function Home() {
       }
     },
     onError: (mutationError, action) => {
+      if (action.type === "withdrawVault" && mutationError instanceof HyperliquidError) {
+        // The L1 action is submitted before the HTTP response is checked, so the vault
+        // may have been withdrawn on-chain even though HL returned an error status.
+        pushToast({
+          message: "Check your vault balance — the withdrawal may have been submitted on-chain.",
+          title: "Vault withdrawal submitted",
+          variant: "info",
+        });
+        schedulePostActionRefetches(action);
+        return;
+      }
+
       pushToast({
         message: formatErrorMessage(mutationError),
         title: getActionErrorTitle(action),
