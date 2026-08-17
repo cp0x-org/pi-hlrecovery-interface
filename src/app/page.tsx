@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FaXTwitter } from "react-icons/fa6";
 import { isAddress } from "viem";
 import {
   useAccount,
@@ -12,6 +11,8 @@ import {
   useWalletClient,
 } from "wagmi";
 import { arbitrum } from "wagmi/chains";
+import { useI18n } from "@/components/i18n-provider";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { RecoveryKanban } from "@/components/recovery-kanban";
 import { useToasts } from "@/components/toasts";
 import { HyperliquidError } from "@nktkas/hyperliquid";
@@ -28,12 +29,16 @@ import {
   withdrawHyperliquidStaking,
 } from "@/lib/hyperliquid";
 import { createHyperliquidWallet } from "@/lib/hyperliquid-wallet";
+import { TranslatedError, type Translate } from "@/lib/i18n";
 import {
-  recoveryColumnTemplates,
+  getRecoveryColumnTemplates,
   type RecoveryAction,
 } from "@/lib/recovery-board";
 import { ensureApprovedSessionAgent } from "@/lib/session-agent";
-import { fetchWalletRecovery } from "@/lib/wallet-recovery";
+import {
+  fetchWalletRecoveryData,
+  mapWalletRecovery,
+} from "@/lib/wallet-recovery";
 
 const POST_ACTION_REFETCH_DELAYS_MS = [
   500, 1_500, 3_000, 5_000, 8_000, 13_000, 21_000, 34_000, 55_000,
@@ -47,44 +52,54 @@ function normalizeAddress(address: string | undefined) {
   return address?.toLowerCase() ?? "";
 }
 
-function formatErrorMessage(error: unknown): string {
+function formatErrorMessage(error: unknown, t: Translate): string {
   if (!(error instanceof Error)) {
-    return "Unknown error.";
+    return t("error.unknown");
+  }
+
+  if (error instanceof TranslatedError) {
+    return t(error.messageKey);
   }
 
   if (error.cause) {
-    return `${error.message}: ${formatErrorMessage(error.cause)}`;
+    return `${error.message}: ${formatErrorMessage(error.cause, t)}`;
   }
 
   return error.message;
 }
 
-function getActionPendingLabel(action: RecoveryAction) {
+function getActionPendingLabel(action: RecoveryAction, t: Translate) {
   switch (action.type) {
     case "cancelOrders":
-      return "Cancelling...";
+      return t("action.pending.cancel");
     case "closePositions":
-      return "Closing...";
+      return t("action.pending.close");
     case "sellSpotAsset":
-      return "Selling...";
+      return t("action.pending.sell");
     case "withdrawVault":
-      return "Withdrawing...";
+      return t("action.pending.withdraw");
     case "portfolioBorrowLend":
-      return action.operation === "repay" ? "Repaying..." : "Withdrawing...";
+      return t(
+        action.operation === "repay"
+          ? "action.pending.repay"
+          : "action.pending.withdraw",
+      );
     case "setPortfolioMargin":
-      return action.enabled ? "Enabling..." : "Disabling...";
+      return t(
+        action.enabled ? "action.pending.enable" : "action.pending.disable",
+      );
     case "undelegateStake":
-      return "Undelegating...";
+      return t("action.pending.undelegate");
     case "transferDexCollateral":
     case "transferSpotUsdc":
-      return "Transferring...";
+      return t("action.pending.transfer");
     case "withdrawStaking":
     case "withdrawUsdc":
-      return "Withdrawing...";
+      return t("action.pending.withdraw");
   }
 }
 
-function getActionSettlingLabel(action: RecoveryAction) {
+function getActionSettlingLabel(action: RecoveryAction, t: Translate) {
   switch (action.type) {
     case "cancelOrders":
     case "closePositions":
@@ -94,107 +109,113 @@ function getActionSettlingLabel(action: RecoveryAction) {
     case "undelegateStake":
     case "withdrawStaking":
     case "withdrawUsdc":
-      return "Rechecking...";
+      return t("action.settling.recheck");
     case "portfolioBorrowLend":
     case "setPortfolioMargin":
     case "withdrawVault":
-      return "Confirming...";
+      return t("action.settling.confirm");
   }
 }
 
-function getActionErrorTitle(action: RecoveryAction | undefined) {
+function getActionErrorTitle(action: RecoveryAction | undefined, t: Translate) {
   switch (action?.type) {
     case "closePositions":
-      return "Close failed";
+      return t("error.title.close");
     case "sellSpotAsset":
-      return "Sell failed";
+      return t("error.title.sell");
     case "withdrawVault":
-      return "Vault withdrawal failed";
+      return t("error.title.vaultWithdraw");
     case "portfolioBorrowLend":
-      return action.operation === "repay" ? "Repay failed" : "Withdraw failed";
+      return t(
+        action.operation === "repay"
+          ? "error.title.repay"
+          : "error.title.withdraw",
+      );
     case "setPortfolioMargin":
-      return "Portfolio margin update failed";
+      return t("error.title.portfolioMargin");
     case "undelegateStake":
-      return "Undelegate failed";
+      return t("error.title.undelegate");
     case "transferDexCollateral":
-      return "DEX transfer failed";
+      return t("error.title.dexTransfer");
     case "transferSpotUsdc":
-      return "Spot USDC transfer failed";
+      return t("error.title.spotUsdcTransfer");
     case "withdrawStaking":
-      return "Staking withdrawal failed";
+      return t("error.title.stakingWithdraw");
     case "withdrawUsdc":
-      return "USDC withdrawal failed";
+      return t("error.title.usdcWithdraw");
     case "cancelOrders":
     default:
-      return "Cancel failed";
+      return t("error.title.cancel");
   }
 }
 
-function getActionSuccessToast(action: RecoveryAction) {
+function getActionSuccessToast(action: RecoveryAction, t: Translate) {
   switch (action.type) {
     case "cancelOrders":
       return {
-        message: "Hyperliquid accepted the cancel request.",
-        title: "Orders cancelled",
+        message: t("toast.cancelOrders.message"),
+        title: t("toast.cancelOrders.title"),
       };
     case "closePositions":
       return {
-        message: "Reduce-only market close orders were submitted.",
-        title: "Position closes submitted",
+        message: t("toast.closePositions.message"),
+        title: t("toast.closePositions.title"),
       };
     case "sellSpotAsset":
       return {
-        message: `A market sell order for ${action.coin} was submitted.`,
-        title: "Spot sell submitted",
+        message: t("toast.sellSpotAsset.message", { coin: action.coin }),
+        title: t("toast.sellSpotAsset.title"),
       };
     case "withdrawVault":
       return {
-        message: `${action.vaultName} withdrawal was submitted.`,
-        title: "Vault withdrawal submitted",
+        message: t("toast.withdrawVault.message", { vault: action.vaultName }),
+        title: t("toast.withdrawVault.title"),
       };
     case "portfolioBorrowLend":
       return action.operation === "repay"
         ? {
-            message: `Full ${action.tokenName} borrow repayment was submitted.`,
-            title: "Repay submitted",
+            message: t("toast.repay.message", { token: action.tokenName }),
+            title: t("toast.repay.title"),
           }
         : {
-            message: `Full ${action.tokenName} supply withdrawal was submitted.`,
-            title: "Supply withdrawal submitted",
+            message: t("toast.supplyWithdraw.message", {
+              token: action.tokenName,
+            }),
+            title: t("toast.supplyWithdraw.title"),
           };
     case "setPortfolioMargin":
       return {
         message: action.enabled
-          ? "Portfolio margin enable request was submitted."
-          : "Portfolio margin disable request was submitted.",
+          ? t("toast.portfolioMargin.enabled.message")
+          : t("toast.portfolioMargin.disabled.message"),
         title: action.enabled
-          ? "Portfolio margin enabled"
-          : "Portfolio margin disabled",
+          ? t("toast.portfolioMargin.enabled.title")
+          : t("toast.portfolioMargin.disabled.title"),
       };
     case "undelegateStake":
       return {
-        message: `Undelegation for ${action.amount} HYPE was submitted. We'll re-scan while it settles.`,
-        title: "Undelegate submitted",
+        message: t("toast.undelegate.message", { amount: action.amount }),
+        title: t("toast.undelegate.title"),
       };
     case "transferDexCollateral":
       return {
-        message: `${action.dexName} collateral transfer was submitted. We'll re-scan while it settles.`,
-        title: "DEX transfer submitted",
+        message: t("toast.dexTransfer.message", { dex: action.dexName }),
+        title: t("toast.dexTransfer.title"),
       };
     case "transferSpotUsdc":
       return {
-        message: "Spot USDC transfer was submitted. We'll re-scan while it settles.",
-        title: "Spot USDC transfer submitted",
+        message: t("toast.spotUsdc.message"),
+        title: t("toast.spotUsdc.title"),
       };
     case "withdrawStaking":
       return {
-        message: `Staking withdrawal for ${action.amount} HYPE was submitted. It enters Hyperliquid's unstaking queue.`,
-        title: "Staking withdrawal submitted",
+        message: t("toast.stakingWithdraw.message", { amount: action.amount }),
+        title: t("toast.stakingWithdraw.title"),
       };
     case "withdrawUsdc":
       return {
-        message: "Arbitrum withdrawal request was submitted.",
-        title: "USDC withdrawal submitted",
+        message: t("toast.usdcWithdraw.message"),
+        title: t("toast.usdcWithdraw.title"),
       };
   }
 }
@@ -260,7 +281,8 @@ function HlLogo() {
       viewBox="0 0 1 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="Hyperliquid"
+      aria-hidden="true"
+      focusable="false"
       style={{ transform: "translateY(2px)" }}
     >
       <g clipPath="url(#hl-clip)">
@@ -278,7 +300,8 @@ function Cp0xLogo() {
       viewBox="0 0 63 26"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-label="cp0x"
+      aria-hidden="true"
+      focusable="false"
     >
       <path
         d="M6.61563 18.4589C7.05716 18.4589 7.48545 18.3882 7.90048 18.2469C8.32435 18.1057 8.69965 17.9114 9.02639 17.6641C9.35312 17.408 9.61362 17.1122 9.8079 16.7766C10.011 16.4323 10.117 16.0614 10.1258 15.664H12.4438C12.435 16.2998 12.2672 16.9091 11.9405 17.4919C11.6226 18.0659 11.1943 18.5737 10.6556 19.0152C10.117 19.4479 9.49883 19.7967 8.80121 20.0616C8.10359 20.3177 7.37506 20.4458 6.61563 20.4458C5.52946 20.4458 4.58017 20.2515 3.76775 19.863C2.95534 19.4744 2.27538 18.9534 1.72788 18.2999C1.18921 17.6376 0.783006 16.8782 0.509257 16.0216C0.235507 15.1562 0.0986328 14.2467 0.0986328 13.293V12.7366C0.0986328 11.7918 0.235507 10.8866 0.509257 10.0212C0.783006 9.15582 1.18921 8.39639 1.72788 7.74293C2.27538 7.08063 2.95534 6.55521 3.76775 6.16666C4.58017 5.77811 5.52946 5.58384 6.61563 5.58384C7.46337 5.58384 8.24046 5.72071 8.94691 5.99446C9.66219 6.25938 10.2759 6.62585 10.7881 7.09388C11.3091 7.55307 11.7153 8.10057 12.0067 8.73637C12.2981 9.37217 12.4438 10.0521 12.4438 10.7762H10.1258C10.117 10.3435 10.0198 9.93733 9.83439 9.55762C9.65778 9.16907 9.41494 8.82909 9.10586 8.53768C8.79679 8.24627 8.42591 8.01667 7.99321 7.84889C7.56934 7.68111 7.11014 7.59722 6.61563 7.59722C5.8562 7.59722 5.21598 7.75176 4.69497 8.06083C4.18279 8.36107 3.76775 8.75845 3.44985 9.25296C3.13195 9.73865 2.90235 10.2861 2.76106 10.8955C2.6286 11.5048 2.56238 12.1185 2.56238 12.7366V13.293C2.56238 13.9199 2.6286 14.5425 2.76106 15.1606C2.90235 15.77 3.12753 16.3219 3.43661 16.8164C3.75451 17.3021 4.16955 17.6994 4.68172 18.0085C5.20273 18.3088 5.84737 18.4589 6.61563 18.4589Z"
@@ -301,6 +324,7 @@ function Cp0xLogo() {
 }
 
 export default function Home() {
+  const { locale, t } = useI18n();
   const [walletInput, setWalletInput] = useState("");
   const trimmedWallet = walletInput.trim();
   const hasValidPastedAddress = isAddress(trimmedWallet);
@@ -344,7 +368,7 @@ export default function Home() {
   const recoveryQuery = useQuery({
     enabled: showRecoveryBoard,
     queryFn: ({ signal }) =>
-      fetchWalletRecovery(activeAddress as `0x${string}`, signal),
+      fetchWalletRecoveryData(activeAddress as `0x${string}`, signal),
     queryKey: ["wallet-recovery", activeAddress],
     staleTime: 15_000,
   });
@@ -382,19 +406,25 @@ export default function Home() {
     [clearScheduledRefetches],
   );
 
-  const recoveryColumns = recoveryQuery.data ?? recoveryColumnTemplates;
+  const recoveryColumns = useMemo(
+    () =>
+      recoveryQuery.data
+        ? mapWalletRecovery(recoveryQuery.data, locale, t)
+        : getRecoveryColumnTemplates(t),
+    [locale, recoveryQuery.data, t],
+  );
   const recoveryActionMutation = useMutation({
     mutationFn: async (action: RecoveryAction) => {
       if (!selectedAddressIsConnected) {
-        throw new Error("Connect the wallet that owns this Hyperliquid account.");
+        throw new Error(t("error.notOwner"));
       }
 
       if (!walletClient) {
-        throw new Error("Wallet connection is still loading. Try again in a moment.");
+        throw new Error(t("error.walletLoading"));
       }
 
       if (!isOnArbitrum) {
-        throw new Error("Switch to Arbitrum before approving the session wallet.");
+        throw new Error(t("error.wrongNetwork"));
       }
 
       const masterWallet = createHyperliquidWallet(walletClient);
@@ -451,7 +481,7 @@ export default function Home() {
           return cancelHyperliquidOrders(agent, action.cancels);
         case "closePositions":
           if (action.orders.length === 0) {
-            throw new Error("There are no closeable positions.");
+            throw new Error(t("error.noPositions"));
           }
 
           return placeHyperliquidMarketOrders(agent, action.orders);
@@ -476,8 +506,8 @@ export default function Home() {
         // The L1 action is submitted before the HTTP response is checked, so the vault
         // may have been withdrawn on-chain even though HL returned an error status.
         pushToast({
-          message: "Check your vault balance — the withdrawal may have been submitted on-chain.",
-          title: "Vault withdrawal submitted",
+          message: t("toast.withdrawVault.uncertain"),
+          title: t("toast.withdrawVault.title"),
           variant: "info",
         });
         schedulePostActionRefetches(action);
@@ -485,13 +515,13 @@ export default function Home() {
       }
 
       pushToast({
-        message: formatErrorMessage(mutationError),
-        title: getActionErrorTitle(action),
+        message: formatErrorMessage(mutationError, t),
+        title: getActionErrorTitle(action, t),
         variant: "error",
       });
     },
     onSuccess: (_result, action) => {
-      const toast = getActionSuccessToast(action);
+      const toast = getActionSuccessToast(action, t);
 
       pushToast({
         message: toast.message,
@@ -517,8 +547,8 @@ export default function Home() {
           ...column,
           groupAction: isPendingGroupAction && activeAction
             ? pendingAction
-              ? getActionPendingLabel(activeAction)
-              : getActionSettlingLabel(activeAction)
+              ? getActionPendingLabel(activeAction, t)
+              : getActionSettlingLabel(activeAction, t)
             : column.groupAction,
           groupActionDisabled: pendingAction
             ? Boolean(column.groupActionData)
@@ -543,28 +573,59 @@ export default function Home() {
               ...item,
               action: isActiveItemAction
                 ? pendingAction
-                  ? getActionPendingLabel(activeAction)
-                  : getActionSettlingLabel(activeAction)
+                  ? getActionPendingLabel(activeAction, t)
+                  : getActionSettlingLabel(activeAction, t)
                 : item.action,
               disabled: true,
             };
           }),
         };
       }),
-    [activeAction, pendingAction, recoveryColumns, settlingAction],
+    [activeAction, pendingAction, recoveryColumns, settlingAction, t],
   );
   const isScanning = recoveryQuery.isPending && showRecoveryBoard;
+  const shortActiveAddress = activeAddress ? shortenAddress(activeAddress) : "";
+  const walletStatusMessage = !hasConnectedWallet
+    ? t("status.wallet.disconnected")
+    : !isOnArbitrum
+      ? t("status.wallet.wrongNetwork", {
+          address: shortenAddress(address ?? ""),
+        })
+      : t("status.wallet.connected", {
+          address: shortenAddress(address ?? ""),
+        });
+  const scanStatusMessage = !showRecoveryBoard
+    ? ""
+    : isScanning
+      ? t("status.scan.scanning", { address: shortActiveAddress })
+      : recoveryQuery.isError
+        ? ""
+        : isReadOnlyScan
+          ? t("status.scan.readOnly", { address: shortActiveAddress })
+          : t("status.scan.ready", { address: shortActiveAddress });
+  const walletInputDescribedBy =
+    [
+      showRecoveryBoard ? undefined : "wallet-address-hint",
+      pastedAddressIsValid ? undefined : "wallet-address-error",
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
+  const transactionStatusMessage = pendingAction
+    ? t("status.action.pending")
+    : settlingAction
+      ? t("status.action.settling")
+      : "";
   const actionLabelOverride =
     hasConnectedWallet && !isOnArbitrum
       ? isSwitchingChain
-        ? "Switching"
-        : "Switch to Arbitrum"
+        ? t("override.switching")
+        : t("override.switchToArbitrum")
       : selectedWalletClientPending
-        ? "Preparing wallet"
+        ? t("override.preparingWallet")
       : isReadOnlyScan
         ? isPending
-          ? "Connecting"
-          : "Connect owner wallet"
+          ? t("override.connecting")
+          : t("override.connectOwner")
         : undefined;
   const actionDisabledOverride =
     selectedWalletClientPending ||
@@ -581,7 +642,7 @@ export default function Home() {
   };
 
   return (
-    <main className="flex flex-1 flex-col bg-[#16161f] text-[#eeeeee]">
+    <>
       <header className="sticky top-0 z-20 border-b border-[#39454b] bg-[#16161f]/95 backdrop-blur">
         <div className="mx-auto flex min-h-16 w-full items-center justify-between gap-4 px-4 py-2 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
@@ -589,14 +650,17 @@ export default function Home() {
               href="https://cp0x.com"
               target="_blank"
               rel="noopener noreferrer"
-              aria-label="cp0x home"
+              aria-label={t("header.logoLink")}
               className="flex items-center gap-3"
             >
               <HlLogo />
               <Cp0xLogo />
             </a>
 
-            <nav className="hidden items-center gap-1 sm:flex">
+            <nav
+              aria-label={t("header.nav.label")}
+              className="hidden items-center gap-1 sm:flex"
+            >
 
               <a
                 href="https://cp0x.com"
@@ -612,7 +676,7 @@ export default function Home() {
                   rel="noopener noreferrer"
                   className="px-3 py-2 text-sm font-medium text-[#eeeeee]/70 transition hover:text-[#28e5e5]"
               >
-                Permissionless interfaces
+                {t("header.nav.permissionless")}
               </a>
             </nav>
           </div>
@@ -623,25 +687,39 @@ export default function Home() {
                 type="button"
                 onClick={() => switchChain({ chainId: arbitrum.id })}
                 disabled={isSwitchingChain}
+                aria-label={
+                  isSwitchingChain
+                    ? t("header.switchChain.ariaPending")
+                    : t("header.switchChain.aria")
+                }
                 className="hidden h-10 rounded-md border border-[#744137] bg-[#211715] px-3 text-sm font-medium text-[#f2b3a7] transition hover:bg-[#2a1b18] disabled:opacity-60 sm:inline-flex sm:items-center"
               >
-                {isSwitchingChain ? "Switching" : "Arbitrum"}
+                {isSwitchingChain
+                  ? t("header.switchChain.switching")
+                  : t("header.switchChain")}
               </button>
             ) : null}
 
             {hasConnectedWallet ? (
-              <>
-                <div className="hidden rounded-md border border-[#39454b] bg-[#1e1e26] px-3 py-2 font-mono text-xs text-[#28e5e5] sm:block">
-                  {shortenAddress(address ?? "")}
-                </div>
+              <p className="hidden rounded-md border border-[#39454b] bg-[#1e1e26] px-3 py-2 font-mono text-xs text-[#28e5e5] sm:block">
+                <span className="sr-only">{t("header.connectedAddress")}</span>
+                {shortenAddress(address ?? "")}
+              </p>
+            ) : null}
+
+            <LanguageSwitcher />
+
+            {hasConnectedWallet ? (
                 <button
                   type="button"
                   onClick={() => disconnect()}
+                  aria-label={t("header.disconnect.aria", {
+                    address: shortenAddress(address ?? ""),
+                  })}
                   className="h-10 rounded-md border border-[#39454b] bg-[#1e1e26] px-3 text-sm font-medium text-[#28e5e5] shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:border-[#525f66] hover:bg-[#252530]"
                 >
-                  Disconnect
+                  {t("header.disconnect")}
                 </button>
-              </>
             ) : (
               <button
                 type="button"
@@ -649,139 +727,184 @@ export default function Home() {
                 disabled={isPending}
                 className="h-10 rounded-md bg-[#28e5e5] px-4 text-sm font-medium text-[#16161f] shadow-[0_10px_28px_rgba(40,229,229,0.22)] transition hover:bg-[#2cfffe] disabled:cursor-not-allowed disabled:bg-[#39454b] disabled:text-[#525f66] disabled:shadow-none"
               >
-                {isPending ? "Connecting..." : "Connect wallet"}
+                {isPending ? t("header.connecting") : t("header.connect")}
               </button>
             )}
           </div>
         </div>
       </header>
 
-      <section
-        className={`flex w-full flex-col px-4 py-8 transition-all duration-500 ease-out sm:px-6 lg:px-8 ${
-          showRecoveryBoard
-            ? "gap-8"
-            : "flex-1 min-h-[calc(100vh-4rem-6rem)] items-center justify-center"
-        }`}
-      >
-        <div
-          className={`w-full max-w-2xl transition-all duration-500 ease-out ${
-            showRecoveryBoard ? "mx-auto" : "mx-auto -translate-y-8"
+      <main className="flex flex-1 flex-col bg-[#16161f] text-[#eeeeee]">
+        <section
+          className={`flex w-full flex-col px-4 py-8 transition-all duration-500 ease-out sm:px-6 lg:px-8 ${
+            showRecoveryBoard
+              ? "gap-8"
+              : "flex-1 min-h-[calc(100vh-4rem-6rem)] items-center justify-center"
           }`}
         >
-          {!showRecoveryBoard ? (
-            <div className="mb-6 text-center">
-              <img
-                src="/main_image.png"
-                alt=""
-                className="mx-auto mb-5 max-h-[28vh] w-auto object-contain"
-                aria-hidden="true"
-              />
-              <h1 className="text-2xl font-semibold tracking-tight text-[#eeeeee] sm:text-3xl">
-                Get your assets out of Hyperliquid.
-              </h1>
-              <p className="mt-3 whitespace-nowrap text-sm leading-6 font-medium text-[#28e5e5]">
-                Use this free interface to recover assets stuck on Hyperliquid if you got blocked from app.hyperliquid.xyz.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="rounded-xl border border-[#39454b] bg-[#1e1e26] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.28)] transition-all duration-500 hover:border-[#525f66]">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="flex-1">
-                <input
-                  id="wallet-address"
-                  value={walletInput}
-                  onChange={(event) => setWalletInput(event.target.value)}
-                  placeholder={
-                    hasConnectedWallet
-                      ? "Paste another wallet address"
-                      : "0x4c82cfF7398f3D43b36e41B10fF6F42b14DD9385"
-                  }
-                  spellCheck={false}
-                  aria-label="Wallet address"
-                  className="h-12 w-full rounded-md border border-[#39454b] bg-[#39454b] px-4 text-center font-mono text-sm text-[#eeeeee] outline-none transition placeholder:text-[#525f66] focus:border-[#28e5e5] focus:ring-2 focus:ring-[#28e5e5]/20"
+          <div
+            className={`w-full max-w-2xl transition-all duration-500 ease-out ${
+              showRecoveryBoard ? "mx-auto" : "mx-auto -translate-y-8"
+            }`}
+          >
+            {!showRecoveryBoard ? (
+              <div className="mb-6 text-center">
+                <img
+                  src="/main_image.png"
+                  alt=""
+                  className="mx-auto mb-5 max-h-[28vh] w-auto object-contain"
+                  aria-hidden="true"
                 />
-              </div>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  disabled={!showRecoveryBoard}
-                  onClick={() => void recoveryQuery.refetch()}
-                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#28e5e5] px-6 text-sm font-medium text-[#16161f] shadow-[0_10px_28px_rgba(40,229,229,0.22)] transition hover:bg-[#2cfffe] disabled:bg-[#39454b] disabled:text-[#525f66] disabled:shadow-none sm:w-auto"
+                <h1
+                  id="page-title"
+                  className="text-2xl font-semibold tracking-tight text-[#eeeeee] sm:text-3xl"
                 >
-                  {recoveryQuery.isFetching ? (
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#16161f]/40 border-t-[#16161f]" />
-                  ) : null}
-                  {recoveryQuery.isFetching
-                    ? "Scanning"
-                    : showRecoveryBoard
-                      ? "Re-scan"
-                      : "Scan"}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {!showRecoveryBoard ? (
-            <p className="mt-3 text-center text-xs leading-5 text-[#dddddd]/50">
-              Paste an address to inspect it or connect your wallet to
-              prepare withdrawal.
-            </p>
-          ) : null}
-
-          {!pastedAddressIsValid ? (
-            <p className="mt-2 text-sm text-[#f2b3a7]">
-              Enter a valid Ethereum address.
-            </p>
-          ) : null}
-
-          {error ? (
-            <p className="mt-2 rounded-md border border-[#744137] bg-[#211715] px-3 py-2 text-sm text-[#f2b3a7]">
-              {error.message}
-            </p>
-          ) : null}
-
-          {recoveryQuery.isError ? (
-            <div className="mt-3 rounded-lg border border-[#744137] bg-[#211715] p-3 text-sm text-[#f2b3a7]">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <span>Could not scan this Hyperliquid account.</span>
-                <button
-                  type="button"
-                  onClick={() => void recoveryQuery.refetch()}
-                  className="h-9 rounded-md border border-[#744137] bg-[#1e1e26] px-3 text-sm font-medium text-[#f2b3a7] transition hover:bg-[#2a1b18]"
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-        </div>
-
-        {showRecoveryBoard ? (
-          <div className="animate-kanban-in">
-            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-[#28e5e5]">
-                  Recovery path
+                  {t("hero.title")}
+                </h1>
+                <p className="mt-3 text-sm leading-6 font-medium text-[#28e5e5]">
+                  {t("hero.subtitle")}
                 </p>
-                <h2 className="text-2xl font-semibold tracking-tight text-[#eeeeee]">
-                  Follow these steps to get your assets out of Hyperliquid.
-                </h2>
+              </div>
+            ) : (
+              <h1 className="sr-only" id="page-title">
+                {t("hero.title")}
+              </h1>
+            )}
+
+            <div
+              role="search"
+              aria-label={t("scan.region")}
+              className="rounded-xl border border-[#39454b] bg-[#1e1e26] p-3 shadow-[0_18px_60px_rgba(0,0,0,0.28)] transition-all duration-500 hover:border-[#525f66]"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="flex-1">
+                  <label className="sr-only" htmlFor="wallet-address">
+                    {t("scan.input.label")}
+                  </label>
+                  <input
+                    id="wallet-address"
+                    value={walletInput}
+                    onChange={(event) => setWalletInput(event.target.value)}
+                    placeholder={
+                      hasConnectedWallet
+                        ? t("scan.input.placeholder")
+                        : "0x4c82cfF7398f3D43b36e41B10fF6F42b14DD9385"
+                    }
+                    spellCheck={false}
+                    aria-invalid={!pastedAddressIsValid}
+                    aria-describedby={walletInputDescribedBy}
+                    className="h-12 w-full rounded-md border border-[#39454b] bg-[#39454b] px-4 text-center font-mono text-sm text-[#eeeeee] outline-none transition placeholder:text-[#525f66] focus:border-[#28e5e5] focus:ring-2 focus:ring-[#28e5e5]/20"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    disabled={!showRecoveryBoard}
+                    onClick={() => void recoveryQuery.refetch()}
+                    aria-label={
+                      recoveryQuery.isFetching
+                        ? t("scan.button.aria.scanning")
+                        : showRecoveryBoard
+                          ? t("scan.button.aria.rescan")
+                          : t("scan.button.aria.scan")
+                    }
+                    className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#28e5e5] px-6 text-sm font-medium text-[#16161f] shadow-[0_10px_28px_rgba(40,229,229,0.22)] transition hover:bg-[#2cfffe] disabled:bg-[#39454b] disabled:text-[#525f66] disabled:shadow-none sm:w-auto"
+                  >
+                    {recoveryQuery.isFetching ? (
+                      <span
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#16161f]/40 border-t-[#16161f]"
+                      />
+                    ) : null}
+                    {recoveryQuery.isFetching
+                      ? t("scan.button.scanning")
+                      : showRecoveryBoard
+                        ? t("scan.button.rescan")
+                        : t("scan.button.scan")}
+                  </button>
+                </div>
               </div>
             </div>
-            <RecoveryKanban
-              actionDisabledOverride={actionDisabledOverride}
-              actionLabelOverride={actionLabelOverride}
-              columns={displayColumns}
-              isLoading={isScanning}
-              onActionOverride={handleActionOverride}
-              onGroupAction={handleGroupAction}
-              onItemAction={handleItemAction}
-            />
+
+            {!showRecoveryBoard ? (
+              <p
+                id="wallet-address-hint"
+                className="mt-3 text-center text-xs leading-5 text-[#dddddd]/50"
+              >
+                {t("scan.hint")}
+              </p>
+            ) : null}
+
+            {!pastedAddressIsValid ? (
+              <p id="wallet-address-error" className="mt-2 text-sm text-[#f2b3a7]">
+                {t("scan.error.invalidAddress")}
+              </p>
+            ) : null}
+
+            {error ? (
+              <p
+                role="alert"
+                className="mt-2 rounded-md border border-[#744137] bg-[#211715] px-3 py-2 text-sm text-[#f2b3a7]"
+              >
+                {t("wallet.error.connection")}
+              </p>
+            ) : null}
+
+            {recoveryQuery.isError ? (
+              <div
+                role="alert"
+                className="mt-3 rounded-lg border border-[#744137] bg-[#211715] p-3 text-sm text-[#f2b3a7]"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <span>{t("scan.error.failed")}</span>
+                  <button
+                    type="button"
+                    onClick={() => void recoveryQuery.refetch()}
+                    aria-label={t("scan.error.retry.aria")}
+                    className="h-9 rounded-md border border-[#744137] bg-[#1e1e26] px-3 text-sm font-medium text-[#f2b3a7] transition hover:bg-[#2a1b18]"
+                  >
+                    {t("scan.error.retry")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <p className="sr-only" role="status">
+              {`${walletStatusMessage}${scanStatusMessage}${transactionStatusMessage}`}
+            </p>
           </div>
-        ) : null}
-      </section>
-    </main>
+
+          {showRecoveryBoard ? (
+            <section
+              aria-labelledby="recovery-path-title"
+              className="animate-kanban-in"
+            >
+              <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-[#28e5e5]">
+                    {t("board.eyebrow")}
+                  </p>
+                  <h2
+                    id="recovery-path-title"
+                    className="text-2xl font-semibold tracking-tight text-[#eeeeee]"
+                  >
+                    {t("board.title")}
+                  </h2>
+                </div>
+              </div>
+              <RecoveryKanban
+                actionDisabledOverride={actionDisabledOverride}
+                actionLabelOverride={actionLabelOverride}
+                columns={displayColumns}
+                isLoading={isScanning}
+                onActionOverride={handleActionOverride}
+                onGroupAction={handleGroupAction}
+                onItemAction={handleItemAction}
+              />
+            </section>
+          ) : null}
+        </section>
+      </main>
+    </>
   );
 }

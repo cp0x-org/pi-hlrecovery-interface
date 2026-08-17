@@ -1,3 +1,5 @@
+import type { Translate } from "@/lib/i18n";
+
 export type CancelOrder = {
   a: number;
   o: number;
@@ -99,63 +101,65 @@ export type RecoveryColumn = {
   items: RecoveryItem[];
 };
 
-export const recoveryColumnTemplates: RecoveryColumn[] = [
-  {
-    step: "01",
-    title: "Open orders",
-    total: "",
-    description: "Resting and trigger orders across perps and spot markets.",
-    emptyDetail: "No resting orders are holding funds.",
-    groupAction: "Cancel all",
-    items: [],
-  },
-  {
-    step: "02",
-    title: "Open positions",
-    total: "",
-    description: "Perp exposure that can keep margin locked.",
-    emptyDetail: "No open perp positions are using margin.",
-    groupAction: "Close all",
-    items: [],
-  },
-  {
-    step: "03",
-    title: "Staked HYPE",
-    total: "",
-    description: "Delegated or undelegated HYPE that needs to move back to spot.",
-    emptyDetail: "No staked HYPE needs to be unstaked.",
-    items: [],
-  },
-  {
-    step: "04",
-    title: "Spot assets",
-    total: "",
-    description: "Non-USDC spot balances worth more than $10.",
-    emptyDetail: "No spot assets above the recovery threshold.",
-    items: [],
-  },
-  {
-    step: "05",
-    title: "Vault deposits",
-    total: "",
-    description: "Depositor equity in protocol or user vaults.",
-    emptyDetail: "No vault deposits are waiting to withdraw.",
-    items: [],
-  },
-  {
-    step: "06",
-    title: "Portfolio margin",
-    total: "",
-    description: "Unified spot and perps margin can create borrows or supplied assets.",
-    emptyDetail: "No portfolio margin borrows or supplied assets found.",
-    items: [],
-  },
-  {
-    step: "07",
-    title: "Withdraw from Hyperliquid",
-    total: "",
-    description: "Final withdrawable USDC after the previous steps settle.",
-    emptyDetail: "No withdrawable USDC is locked here.",
-    items: [],
-  },
-];
+export function getRecoveryColumnTemplates(t: Translate): RecoveryColumn[] {
+  return [
+    {
+      step: "01",
+      title: t("column.orders.title"),
+      total: "",
+      description: t("column.orders.description"),
+      emptyDetail: t("column.orders.empty"),
+      groupAction: t("column.orders.groupAction"),
+      items: [],
+    },
+    {
+      step: "02",
+      title: t("column.positions.title"),
+      total: "",
+      description: t("column.positions.description"),
+      emptyDetail: t("column.positions.empty"),
+      groupAction: t("column.positions.groupAction"),
+      items: [],
+    },
+    {
+      step: "03",
+      title: t("column.staking.title"),
+      total: "",
+      description: t("column.staking.description"),
+      emptyDetail: t("column.staking.empty"),
+      items: [],
+    },
+    {
+      step: "04",
+      title: t("column.spot.title"),
+      total: "",
+      description: t("column.spot.description"),
+      emptyDetail: t("column.spot.empty"),
+      items: [],
+    },
+    {
+      step: "05",
+      title: t("column.vaults.title"),
+      total: "",
+      description: t("column.vaults.description"),
+      emptyDetail: t("column.vaults.empty"),
+      items: [],
+    },
+    {
+      step: "06",
+      title: t("column.portfolioMargin.title"),
+      total: "",
+      description: t("column.portfolioMargin.description"),
+      emptyDetail: t("column.portfolioMargin.empty"),
+      items: [],
+    },
+    {
+      step: "07",
+      title: t("column.withdraw.title"),
+      total: "",
+      description: t("column.withdraw.description"),
+      emptyDetail: t("column.withdraw.empty"),
+      items: [],
+    },
+  ];
+}

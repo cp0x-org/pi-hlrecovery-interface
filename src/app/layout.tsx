@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { Footer } from "@/components/footer";
+import { I18nProvider } from "@/components/i18n-provider";
+import { en } from "@/lib/i18n/en";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -18,11 +20,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://hlrecovery.cp0x.com"),
   title: {
-    default: "cp0x | Hyperliquid recovery",
+    default: en["meta.title"],
     template: "%s | cp0x",
   },
-  description:
-    "Inspect a Hyperliquid account and recover assets stuck in orders, positions, vaults, DEX collateral, spot balances, borrow/lend, and USDC. Free permissionless interface by cp0x.",
+  description: en["meta.description"],
   applicationName: "cp0x Hyperliquid Recovery",
   alternates: {
     canonical: "/",
@@ -55,9 +56,8 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "cp0x | Hyperliquid recovery",
-    description:
-      "Inspect a Hyperliquid account and recover stuck balances, vault funds, collateral, orders, positions, and USDC. Free permissionless interface by cp0x.",
+    title: en["meta.title"],
+    description: en["meta.socialDescription"],
     url: "/",
     siteName: "cp0x",
     locale: "en_US",
@@ -65,9 +65,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "cp0x | Hyperliquid recovery",
-    description:
-      "Inspect a Hyperliquid account and recover stuck balances, vault funds, collateral, orders, positions, and USDC. Free permissionless interface by cp0x.",
+    title: en["meta.title"],
+    description: en["meta.socialDescription"],
     site: "@cp0xdotcom",
     creator: "@cp0xdotcom",
   },
@@ -94,8 +93,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <Providers>{children}</Providers>
-        <Footer />
+        <I18nProvider>
+          <Providers>{children}</Providers>
+          <Footer />
+        </I18nProvider>
         <Analytics />
       </body>
     </html>

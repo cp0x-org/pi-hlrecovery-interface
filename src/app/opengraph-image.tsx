@@ -1,8 +1,9 @@
 import { ImageResponse } from "next/og";
 import fs from "fs";
 import path from "path";
+import { en } from "@/lib/i18n/en";
 
-export const alt = "cp0x | Hyperliquid recovery";
+export const alt = en["meta.title"];
 export const contentType = "image/png";
 export const size = {
   width: 1200,
@@ -83,7 +84,7 @@ export default function Image() {
                 letterSpacing: -1,
               }}
             >
-              Get your assets out of Hyperliquid.
+              {en["hero.title"]}
             </div>
             <div
               style={{
@@ -93,13 +94,13 @@ export default function Image() {
                 marginTop: 32,
               }}
             >
-              Inspect stuck balances, vault funds, collateral, orders,
-              positions, and USDC in one recovery path.
+              {en["meta.imageDescription"]}
             </div>
           </div>
 
           {/* right: main_image */}
           <img
+            alt=""
             src={imageSrc}
             width={280}
             height={280}

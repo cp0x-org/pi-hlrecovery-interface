@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useI18n } from "@/components/i18n-provider";
 import type { RecoveryAction, RecoveryColumn } from "@/lib/recovery-board";
 
 const COLLAPSED_VISIBLE_ITEMS = 3;
@@ -17,7 +18,7 @@ type RecoveryKanbanProps = {
 
 function LoadingItems() {
   return (
-    <div className="flex flex-1 flex-col gap-3">
+    <div aria-hidden="true" className="flex flex-1 flex-col gap-3">
       {[0, 1].map((item) => (
         <div
           className="rounded-lg border border-[#39454b] bg-[#1e1e26] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
@@ -44,6 +45,7 @@ export function RecoveryKanban({
   onGroupAction,
   onItemAction,
 }: RecoveryKanbanProps) {
+  const { t } = useI18n();
   const [expandedColumns, setExpandedColumns] = useState<Set<string>>(
     () => new Set(),
   );
@@ -80,31 +82,41 @@ export function RecoveryKanban({
           actionDisabledOverride ||
           (!actionLabelOverride &&
             (!column.groupActionData || column.groupActionDisabled));
+        const columnTitleId = `recovery-column-${column.step}-title`;
+        const columnItemsId = `recovery-column-${column.step}-items`;
 
         return (
           <article
+            aria-labelledby={columnTitleId}
             className="flex min-h-[400px] min-w-0 flex-col rounded-lg border border-[#39454b] bg-[#1e1e26] shadow-[0_16px_48px_rgba(0,0,0,0.22)]"
             key={column.step}
           >
             <header className="min-w-0 border-b border-[#39454b]/40 p-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="rounded-md border border-[#39454b] bg-[#16161f] px-2 py-1 text-xs font-semibold text-[#28e5e5]">
-                  Step {column.step}
+                  {t("kanban.step", { step: column.step })}
                 </span>
                 {isLoading ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-[#16161f] px-2 py-1 text-xs font-medium text-[#28e5e5]">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#28e5e5]" />
-                    Scanning
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#28e5e5]"
+                    />
+                    {t("kanban.scanning")}
                   </span>
                 ) : column.total ? (
                   <span className="min-w-0 max-w-[60%] rounded-full bg-[#16161f] px-2 py-1 text-right text-xs font-medium break-words text-[#28e5e5]">
+                    <span className="sr-only">{t("kanban.total")}</span>
                     {column.total}
                   </span>
                 ) : null}
               </div>
-              <h2 className="mt-3 min-w-0 text-lg font-semibold break-words text-[#eeeeee]">
+              <h3
+                id={columnTitleId}
+                className="mt-3 min-w-0 text-lg font-semibold break-words text-[#eeeeee]"
+              >
                 {column.title}
-              </h2>
+              </h3>
               <p className="mt-2 min-h-12 min-w-0 text-sm leading-5 break-words text-[#dddddd]/60">
                 {column.description}
               </p>
@@ -115,7 +127,7 @@ export function RecoveryKanban({
                 <LoadingItems />
               ) : hasItems ? (
                 <div className="relative min-w-0">
-                  <div className="flex min-w-0 flex-col gap-3">
+                  <ul className="flex min-w-0 flex-col gap-3" id={columnItemsId}>
                     {visibleItems.map((item, itemIndex) => {
                       const itemActionDisabled =
                         actionDisabledOverride ||
@@ -123,7 +135,7 @@ export function RecoveryKanban({
                           (item.disabled || !item.actionData));
 
                       return (
-                        <div
+                        <li
                           className="min-w-0 rounded-lg border border-[#39454b]/60 bg-[#16161f] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
                           key={
                             item.id ?? `${column.step}-${item.name}-${itemIndex}`
@@ -131,9 +143,9 @@ export function RecoveryKanban({
                         >
                           <div className="flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <h3 className="min-w-0 text-sm font-semibold break-words text-[#eeeeee]">
+                              <h4 className="min-w-0 text-sm font-semibold break-words text-[#eeeeee]">
                                 {item.name}
-                              </h3>
+                              </h4>
                               <p className="mt-1 min-w-0 text-xs leading-5 break-words text-[#dddddd]/60">
                                 {item.detail}
                               </p>
@@ -147,6 +159,19 @@ export function RecoveryKanban({
                             <button
                               type="button"
                               disabled={itemActionDisabled}
+                              aria-label={
+                                actionLabelOverride ??
+                                t(
+                                  item.value
+                                    ? "kanban.item.action.aria"
+                                    : "kanban.item.action.ariaNoValue",
+                                  {
+                                    action: item.action,
+                                    name: item.name,
+                                    value: item.value,
+                                  },
+                                )
+                              }
                               onClick={
                                 actionDisabledOverride
                                   ? undefined
@@ -161,10 +186,10 @@ export function RecoveryKanban({
                               {actionLabelOverride ?? item.action}
                             </button>
                           ) : null}
-                        </div>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
 
                   {isCollapsible ? (
                     <div
@@ -174,14 +199,31 @@ export function RecoveryKanban({
                     >
                       <button
                         type="button"
+                        aria-controls={columnItemsId}
+                        aria-expanded={isExpanded}
+                        aria-label={
+                          isExpanded
+                            ? t("kanban.collapse.aria", {
+                                column: column.title,
+                              })
+                            : t(
+                                hiddenItemCount === 1
+                                  ? "kanban.expand.aria.one"
+                                  : "kanban.expand.aria.other",
+                                {
+                                  column: column.title,
+                                  count: hiddenItemCount,
+                                },
+                              )
+                        }
                         onClick={() => toggleExpandedColumn(column.step)}
                         className={`h-9 w-full cursor-pointer rounded-md border border-[#39454b] bg-[#16161f] px-3 text-sm font-medium text-[#28e5e5] shadow-[0_12px_32px_rgba(0,0,0,0.32)] transition hover:border-[#28e5e5] hover:bg-[#252530] ${
                           isExpanded ? "" : "pointer-events-auto"
                         }`}
                       >
                         {isExpanded
-                          ? "Collapse"
-                          : `Expand ${hiddenItemCount} more`}
+                          ? t("kanban.collapse")
+                          : t("kanban.expand", { count: hiddenItemCount })}
                       </button>
                     </div>
                   ) : null}
@@ -190,7 +232,7 @@ export function RecoveryKanban({
                 <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#39454b]/40 bg-[#16161f] p-4 text-center">
                   <div>
                     <p className="text-sm font-semibold text-[#28e5e5]">
-                      Nothing locked
+                      {t("kanban.empty.title")}
                     </p>
                     <p className="mt-2 text-xs leading-5 text-[#525f66]">
                       {column.emptyDetail}
@@ -205,6 +247,13 @@ export function RecoveryKanban({
                 <button
                   type="button"
                   disabled={groupActionDisabled}
+                  aria-label={
+                    actionLabelOverride ??
+                    t("kanban.group.action.aria", {
+                      action: column.groupAction,
+                      column: column.title,
+                    })
+                  }
                   onClick={
                     actionDisabledOverride
                       ? undefined
