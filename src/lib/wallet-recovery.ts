@@ -16,8 +16,9 @@ import {
   formatSize as formatOrderSize,
 } from "@nktkas/hyperliquid/utils";
 import { createHyperliquidInfoClient } from "@/lib/hyperliquid";
+import type { Locale, Translate } from "@/lib/i18n";
 import {
-  recoveryColumnTemplates,
+  getRecoveryColumnTemplates,
   type CancelOrder,
   type RecoveryColumn,
   type RecoveryItem,
@@ -31,7 +32,8 @@ const WITHDRAWAL_FEE_USDC = 1;
 const MIN_VISIBLE_USDC_BALANCE = WITHDRAWAL_FEE_USDC;
 const HYPE_TOKEN_DECIMALS = 8;
 
-type WalletRecoveryResponse = {
+export type WalletRecoveryResponse = {
+  asOf: number;
   webData: WebData2Response;
   vaultEquities: UserVaultEquitiesResponse;
   borrowLendState: BorrowLendUserStateResponse;
@@ -130,8 +132,8 @@ function formatHype(value: string | number) {
   return `${formatDisplaySize(String(value))} HYPE`;
 }
 
-function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat("en-US", {
+function formatDate(timestamp: number, locale: Locale) {
+  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
     day: "numeric",
     month: "short",
   }).format(new Date(timestamp));
@@ -142,12 +144,13 @@ function formatAddress(address: `0x${string}`) {
 }
 
 function cloneTemplate(
+  templates: RecoveryColumn[],
   index: number,
   items: RecoveryItem[],
   total: string,
   extras?: Partial<RecoveryColumn>,
 ) {
-  const template = recoveryColumnTemplates[index];
+  const template = templates[index];
 
   return {
     ...template,
@@ -157,12 +160,17 @@ function cloneTemplate(
   };
 }
 
-function summarizeCount(count: number, singular: string, plural = `${singular}s`) {
+function summarizeCount(
+  count: number,
+  singularKey: Parameters<Translate>[0],
+  pluralKey: Parameters<Translate>[0],
+  t: Translate,
+) {
   if (count === 0) {
     return "";
   }
 
-  return `${count} ${count === 1 ? singular : plural}`;
+  return t(count === 1 ? singularKey : pluralKey, { count });
 }
 
 function buildAssetIdByCoin(
@@ -321,18 +329,47 @@ function buildMarketOrder({
   }
 }
 
+function getOrderTypeLabel(
+  orderType: WebData2Response["openOrders"][number]["orderType"],
+  t: Translate,
+) {
+  switch (orderType) {
+    case "Market":
+      return t("board.orders.type.market");
+    case "Limit":
+      return t("board.orders.type.limit");
+    case "Stop Market":
+      return t("board.orders.type.stopMarket");
+    case "Stop Limit":
+      return t("board.orders.type.stopLimit");
+    case "Take Profit Market":
+      return t("board.orders.type.takeProfitMarket");
+    case "Take Profit Limit":
+      return t("board.orders.type.takeProfitLimit");
+  }
+}
+
 function buildOrderItems(
   webData: WebData2Response,
   spotMeta: SpotMetaResponse,
+  t: Translate,
 ): { items: RecoveryItem[]; cancels: CancelOrder[] } {
   const assetIdByCoin = buildAssetIdByCoin(webData, spotMeta);
   const cancels: CancelOrder[] = [];
 
   return webData.openOrders.map((order) => ({
-    detail: `${order.orderType} ${order.side === "B" ? "buy" : "sell"} at ${order.limitPx}`,
+    detail: t("board.orders.detail", {
+      orderType: getOrderTypeLabel(order.orderType, t),
+      price: order.limitPx,
+      side: t(
+        order.side === "B"
+          ? "board.orders.side.buy"
+          : "board.orders.side.sell",
+      ),
+    }),
     id: `order-${order.coin}-${order.oid}`,
     name: order.coin,
-    value: `${formatDisplaySize(order.sz)} open`,
+    value: t("board.orders.value", { size: formatDisplaySize(order.sz) }),
   })).reduce(
     (result, item, index) => {
       const order = webData.openOrders[index];
@@ -352,6 +389,7 @@ function buildOrderItems(
 
 function buildPositionItems(
   webData: WebData2Response,
+  t: Translate,
 ): { items: RecoveryItem[]; orders: RecoveryMarketOrder[] } {
   const orders: RecoveryMarketOrder[] = [];
 
@@ -386,7 +424,20 @@ function buildPositionItems(
       }
 
       return {
-        detail: `${isLong ? "Long" : "Short"} ${formatDisplaySize(position.szi)} | PnL ${formatUsd(position.unrealizedPnl)}${order ? "" : " | close unavailable"}`,
+        detail: t(
+          order
+            ? "board.positions.detail"
+            : "board.positions.detailNoClose",
+          {
+            pnl: formatUsd(position.unrealizedPnl),
+            side: t(
+              isLong
+                ? "board.positions.side.long"
+                : "board.positions.side.short",
+            ),
+            size: formatDisplaySize(position.szi),
+          },
+        ),
         id: `position-${position.coin}`,
         name: position.coin,
         value: formatUsd(position.positionValue),
@@ -447,6 +498,7 @@ function findSpotMarkPrice(
 function buildSpotItems(
   webData: WebData2Response,
   spotMeta: SpotMetaResponse,
+  t: Translate,
 ): RecoveryItem[] {
   return (webData.spotState?.balances ?? [])
     .filter((balance) => balance.coin !== "USDC")
@@ -474,15 +526,21 @@ function buildSpotItems(
             })
           : null;
       const unavailableDetail = !spotMarket
-        ? " | no USDC market"
+        ? t("board.spot.noMarket")
         : availableBalance <= 0
-          ? " | balance on hold"
+          ? t("board.spot.balanceOnHold")
           : order
             ? ""
-            : " | sell unavailable";
+            : t("board.spot.sellUnavailable");
+      const holdDetail =
+        toNumber(balance.hold) > 0
+          ? t("board.spot.hold", {
+              size: formatDisplaySize(balance.hold),
+            })
+          : "";
 
       return {
-        action: "Sell",
+        action: t("board.action.sell"),
         actionData: order && spotMarket
           ? {
               assetId: spotMarket.assetId,
@@ -491,7 +549,12 @@ function buildSpotItems(
               type: "sellSpotAsset" as const,
             }
           : undefined,
-        detail: `${formatDisplaySize(balance.total)} ${balance.coin}${toNumber(balance.hold) > 0 ? ` | ${formatDisplaySize(balance.hold)} on hold` : ""}${unavailableDetail}`,
+        detail: t("board.spot.detail", {
+          coin: balance.coin,
+          hold: holdDetail,
+          size: formatDisplaySize(balance.total),
+          unavailable: unavailableDetail,
+        }),
         disabled: !order,
         id: `spot-${balance.coin}-${balance.token}`,
         name: balance.coin,
@@ -506,16 +569,17 @@ function buildSpotItems(
 function buildVaultItems(
   webData: WebData2Response,
   vaultEquities: UserVaultEquitiesResponse,
+  asOf: number,
+  locale: Locale,
+  t: Translate,
 ): RecoveryItem[] {
   const vaultNameByAddress = new Map(
     webData.leadingVaults.map((vault) => [vault.address, vault.name]),
   );
-  const now = Date.now();
-
   return vaultEquities
     .filter((vault) => toNumber(vault.equity) > 0)
     .map((vault) => {
-      const locked = vault.lockedUntilTimestamp > now;
+      const locked = vault.lockedUntilTimestamp > asOf;
       const vaultName =
         vaultNameByAddress.get(vault.vaultAddress) ??
         `${vault.vaultAddress.slice(0, 6)}...${vault.vaultAddress.slice(-4)}`;
@@ -524,7 +588,9 @@ function buildVaultItems(
       const canWithdraw = !locked && withdrawUsd > 0;
 
       return {
-        action: locked ? "Locked" : "Withdraw",
+        action: t(
+          locked ? "board.action.locked" : "board.action.withdraw",
+        ),
         actionData: canWithdraw
           ? {
               type: "withdrawVault" as const,
@@ -534,10 +600,12 @@ function buildVaultItems(
             }
           : undefined,
         detail: locked
-          ? `Unlocks ${formatDate(vault.lockedUntilTimestamp)}`
+          ? t("board.vaults.detail.locked", {
+              date: formatDate(vault.lockedUntilTimestamp, locale),
+            })
           : canWithdraw
-            ? "Withdrawal is available."
-            : "Withdrawal amount is too small.",
+            ? t("board.vaults.detail.available")
+            : t("board.vaults.detail.tooSmall"),
         disabled: !canWithdraw,
         id: `vault-${vault.vaultAddress}`,
         name: vaultName,
@@ -552,6 +620,7 @@ function buildPortfolioMarginItems(
   borrowLendState: BorrowLendUserStateResponse,
   spotMeta: SpotMetaResponse,
   abstraction: UserAbstractionResponse,
+  t: Translate,
 ): RecoveryItem[] {
   const tokenNameById = new Map(
     spotMeta.tokens.map((token) => [token.index, token.name]),
@@ -565,7 +634,8 @@ function buildPortfolioMarginItems(
   const items: RecoveryItem[] = [];
 
   for (const [tokenId, state] of borrowLendState.tokenToState) {
-    const tokenName = tokenNameById.get(tokenId) ?? `Token ${tokenId}`;
+    const tokenName =
+      tokenNameById.get(tokenId) ?? t("board.tokenFallback", { id: tokenId });
     const borrowed = toNumber(state.borrow.value);
     const borrowedBasis = toNumber(state.borrow.basis);
     const availableBalance = availableBalanceByToken.get(tokenId) ?? 0;
@@ -575,7 +645,9 @@ function buildPortfolioMarginItems(
 
     if (borrowed > 0) {
       items.push({
-        action: canRepay ? "Repay" : `Needs ${tokenName}`,
+        action: canRepay
+          ? t("board.action.repay")
+          : t("board.portfolioMargin.action.needs", { token: tokenName }),
         actionData: canRepay
           ? {
               amount: null,
@@ -585,17 +657,21 @@ function buildPortfolioMarginItems(
               type: "portfolioBorrowLend" as const,
             }
           : undefined,
-        detail: `Borrow basis ${formatDisplaySize(state.borrow.basis)} ${tokenName} | Available ${formatDisplaySize(String(availableBalance))}`,
+        detail: t("board.portfolioMargin.borrow.detail", {
+          available: formatDisplaySize(String(availableBalance)),
+          basis: formatDisplaySize(state.borrow.basis),
+          token: tokenName,
+        }),
         disabled: !canRepay,
         id: `borrow-${tokenId}`,
-        name: `Borrowed ${tokenName}`,
+        name: t("board.portfolioMargin.borrow.name", { token: tokenName }),
         value: formatUsd(borrowed),
       });
     }
 
     if (supplied > 0) {
       items.push({
-        action: "Withdraw",
+        action: t("board.action.withdraw"),
         actionData: {
           amount: null,
           operation: "withdraw",
@@ -603,9 +679,12 @@ function buildPortfolioMarginItems(
           tokenName,
           type: "portfolioBorrowLend",
         },
-        detail: `Supply basis ${formatDisplaySize(state.supply.basis)} ${tokenName}`,
+        detail: t("board.portfolioMargin.supply.detail", {
+          basis: formatDisplaySize(state.supply.basis),
+          token: tokenName,
+        }),
         id: `supply-${tokenId}`,
-        name: `Supplied ${tokenName}`,
+        name: t("board.portfolioMargin.supply.name", { token: tokenName }),
         value: formatUsd(supplied),
       });
     }
@@ -615,7 +694,9 @@ function buildPortfolioMarginItems(
     const canDisable = items.length === 0;
 
     items.push({
-      action: canDisable ? "Disable" : "Locked",
+      action: t(
+        canDisable ? "board.action.disable" : "board.action.locked",
+      ),
       actionData: canDisable
         ? {
             enabled: false,
@@ -625,12 +706,12 @@ function buildPortfolioMarginItems(
         : undefined,
       detail:
         canDisable
-          ? "Portfolio margin mode can be disabled."
-          : "Clear borrows and supplied assets first.",
+          ? t("board.portfolioMargin.mode.canDisable")
+          : t("board.portfolioMargin.mode.blocked"),
       disabled: !canDisable,
       id: "portfolio-margin-mode",
-      name: "Portfolio margin mode",
-      value: "Enabled",
+      name: t("board.portfolioMargin.mode.name"),
+      value: t("board.portfolioMargin.mode.value"),
     });
   }
 
@@ -640,16 +721,18 @@ function buildPortfolioMarginItems(
 function buildStakingItems(
   delegatorSummary: DelegatorSummaryResponse,
   delegations: DelegationsResponse,
+  asOf: number,
+  locale: Locale,
+  t: Translate,
 ): RecoveryItem[] {
   const items: RecoveryItem[] = [];
-  const now = Date.now();
   const undelegated = toNumber(delegatorSummary.undelegated);
   const pendingWithdrawal = toNumber(delegatorSummary.totalPendingWithdrawal);
 
   for (const delegation of delegations) {
     const amount = toNumber(delegation.amount);
     const wei = decimalTokenToWei(delegation.amount);
-    const locked = delegation.lockedUntilTimestamp > now;
+    const locked = delegation.lockedUntilTimestamp > asOf;
     const canUndelegate = !locked && wei > 0;
 
     if (amount <= 0) {
@@ -657,7 +740,9 @@ function buildStakingItems(
     }
 
     items.push({
-      action: locked ? "Locked" : "Undelegate",
+      action: t(
+        locked ? "board.action.locked" : "board.action.undelegate",
+      ),
       actionData: canUndelegate
         ? {
             amount: delegation.amount,
@@ -667,11 +752,16 @@ function buildStakingItems(
           }
         : undefined,
       detail: locked
-        ? `Validator ${formatAddress(delegation.validator)} unlocks ${formatDate(delegation.lockedUntilTimestamp)}.`
-        : `Undelegate from validator ${formatAddress(delegation.validator)} before withdrawing to spot.`,
+        ? t("board.staking.delegated.locked", {
+            date: formatDate(delegation.lockedUntilTimestamp, locale),
+            validator: formatAddress(delegation.validator),
+          })
+        : t("board.staking.delegated.detail", {
+            validator: formatAddress(delegation.validator),
+          }),
       disabled: !canUndelegate,
       id: `stake-delegated-${delegation.validator}`,
-      name: "Delegated HYPE",
+      name: t("board.staking.delegated.name"),
       value: formatHype(delegation.amount),
     });
   }
@@ -681,7 +771,7 @@ function buildStakingItems(
     const canWithdraw = wei > 0;
 
     items.push({
-      action: "Withdraw",
+      action: t("board.action.withdraw"),
       actionData: canWithdraw
         ? {
             amount: delegatorSummary.undelegated,
@@ -689,22 +779,28 @@ function buildStakingItems(
             wei,
           }
         : undefined,
-      detail:
-        "Move undelegated HYPE from staking to spot. Hyperliquid staking withdrawals enter a 7 day queue.",
+      detail: t("board.staking.undelegated.detail"),
       disabled: !canWithdraw,
       id: "stake-undelegated",
-      name: "Undelegated HYPE",
+      name: t("board.staking.undelegated.name"),
       value: formatHype(delegatorSummary.undelegated),
     });
   }
 
   if (pendingWithdrawal > 0) {
+    const pendingCount = delegatorSummary.nPendingWithdrawals;
+
     items.push({
-      action: "Pending",
-      detail: `${delegatorSummary.nPendingWithdrawals} staking withdrawal${delegatorSummary.nPendingWithdrawals === 1 ? "" : "s"} waiting for the 7 day queue.`,
+      action: t("board.action.pending"),
+      detail: t(
+        pendingCount === 1
+          ? "board.staking.pending.detail.one"
+          : "board.staking.pending.detail.other",
+        { count: pendingCount },
+      ),
       disabled: true,
       id: "stake-pending-withdrawal",
-      name: "Pending staking withdrawal",
+      name: t("board.staking.pending.name"),
       value: formatHype(delegatorSummary.totalPendingWithdrawal),
     });
   }
@@ -717,6 +813,7 @@ function buildUsdcItems(
   abstraction: UserAbstractionResponse,
   dexAbstraction: UserDexAbstractionResponse,
   dexCollateralTransfers: DexCollateralTransfer[],
+  t: Translate,
 ): RecoveryItem[] {
   const items: RecoveryItem[] = [];
   const perpWithdrawable = toNumber(webData.clearinghouseState.withdrawable);
@@ -743,7 +840,7 @@ function buildUsdcItems(
       }
 
       items.push({
-        action: "Move",
+        action: t("board.action.move"),
         actionData: {
           amount: transfer.amount,
           destination: webData.user,
@@ -753,9 +850,16 @@ function buildUsdcItems(
           token: transfer.token,
           type: "transferDexCollateral",
         },
-        detail: `DEX abstraction: move from ${transfer.dexFullName} to ${transferToSpot ? "spot" : "main perps"}.`,
+        detail: t("board.usdc.dexCollateral.detail", {
+          destination: t(
+            transferToSpot
+              ? "board.usdc.dexCollateral.destination.spot"
+              : "board.usdc.dexCollateral.destination.perps",
+          ),
+          dex: transfer.dexFullName,
+        }),
         id: `dex-collateral-${transfer.dexName}-${transfer.token}`,
-        name: `${transfer.dexName} collateral`,
+        name: t("board.usdc.dexCollateral.name", { dex: transfer.dexName }),
         value:
           transfer.tokenName === "USDC"
             ? formatUsd(transfer.amountValue)
@@ -772,7 +876,7 @@ function buildUsdcItems(
     const canTransfer = spotUsdcAvailable > 0;
 
     items.push({
-      action: "Move to perps",
+      action: t("board.action.moveToPerps"),
       actionData: canTransfer
         ? {
             amount: toOrderNumberString(spotUsdcAvailable),
@@ -780,26 +884,36 @@ function buildUsdcItems(
           }
         : undefined,
       detail: canTransfer
-        ? "Standard mode: spot USDC must move to perps before Arbitrum withdrawal."
-        : "Spot USDC is currently on hold.",
+        ? t("board.usdc.spotWallet.detail")
+        : t("board.usdc.spotWallet.onHold"),
       disabled: !canTransfer,
       id: "usdc-spot-wallet",
-      name: "Spot wallet",
+      name: t("board.usdc.spotWallet.name"),
       value: formatUsd(spotUsdc.total),
     });
   }
 
   if (withdrawable > MIN_VISIBLE_USDC_BALANCE) {
+    const accountName = t(
+      canWithdrawDirectly
+        ? "board.usdc.unifiedAccount"
+        : "board.usdc.perpsWallet",
+    );
+
     items.push({
-      action: "Withdraw",
+      action: t("board.action.withdraw"),
       actionData: {
         amount: withdrawAmount,
         destination: webData.user,
         type: "withdrawUsdc",
       },
-      detail: `${canWithdrawDirectly ? "Unified account" : "Perps wallet"} USDC can be withdrawn to Arbitrum. Hyperliquid charges a ${formatUsd(WITHDRAWAL_FEE_USDC)} withdrawal fee, so this signs ${formatUsd(netWithdrawable)}.`,
+      detail: t("board.usdc.withdraw.detail", {
+        account: accountName,
+        fee: formatUsd(WITHDRAWAL_FEE_USDC),
+        net: formatUsd(netWithdrawable),
+      }),
       id: canWithdrawDirectly ? "usdc-unified-wallet" : "usdc-perps-wallet",
-      name: canWithdrawDirectly ? "Unified account" : "Perps wallet",
+      name: accountName,
       value: formatUsd(withdrawable),
     });
   }
@@ -814,40 +928,73 @@ function sumItemUsdValues(items: RecoveryItem[]) {
   );
 }
 
-function mapRecoveryColumns(response: WalletRecoveryResponse): RecoveryColumn[] {
-  const orders = buildOrderItems(response.webData, response.spotMeta);
-  const positions = buildPositionItems(response.webData);
-  const spot = buildSpotItems(response.webData, response.spotMeta);
-  const vaults = buildVaultItems(response.webData, response.vaultEquities);
+export function mapWalletRecovery(
+  response: WalletRecoveryResponse,
+  locale: Locale,
+  t: Translate,
+): RecoveryColumn[] {
+  const templates = getRecoveryColumnTemplates(t);
+  const orders = buildOrderItems(response.webData, response.spotMeta, t);
+  const positions = buildPositionItems(response.webData, t);
+  const spot = buildSpotItems(response.webData, response.spotMeta, t);
+  const vaults = buildVaultItems(
+    response.webData,
+    response.vaultEquities,
+    response.asOf,
+    locale,
+    t,
+  );
   const portfolioMargin = buildPortfolioMarginItems(
     response.webData.user,
     response.webData,
     response.borrowLendState,
     response.spotMeta,
     response.abstraction,
+    t,
   );
   const staking = buildStakingItems(
     response.delegatorSummary,
     response.delegations,
+    response.asOf,
+    locale,
+    t,
   );
   const usdc = buildUsdcItems(
     response.webData,
     response.abstraction,
     response.dexAbstraction,
     response.dexCollateralTransfers,
+    t,
   );
 
   return [
-    cloneTemplate(0, orders.items, summarizeCount(orders.items.length, "order"), {
-      groupActionData: orders.cancels.length
-        ? { type: "cancelOrders", cancels: orders.cancels }
-        : undefined,
-      groupActionDisabled: orders.cancels.length !== orders.items.length,
-    }),
     cloneTemplate(
+      templates,
+      0,
+      orders.items,
+      summarizeCount(
+        orders.items.length,
+        "board.total.orders.one",
+        "board.total.orders.other",
+        t,
+      ),
+      {
+        groupActionData: orders.cancels.length
+          ? { type: "cancelOrders", cancels: orders.cancels }
+          : undefined,
+        groupActionDisabled: orders.cancels.length !== orders.items.length,
+      },
+    ),
+    cloneTemplate(
+      templates,
       1,
       positions.items,
-      summarizeCount(positions.items.length, "position"),
+      summarizeCount(
+        positions.items.length,
+        "board.total.positions.one",
+        "board.total.positions.other",
+        t,
+      ),
       {
         groupActionData: positions.orders.length
           ? { orders: positions.orders, type: "closePositions" }
@@ -855,27 +1002,50 @@ function mapRecoveryColumns(response: WalletRecoveryResponse): RecoveryColumn[] 
         groupActionDisabled: positions.orders.length !== positions.items.length,
       },
     ),
-    cloneTemplate(2, staking, summarizeCount(staking.length, "item")),
     cloneTemplate(
+      templates,
+      2,
+      staking,
+      summarizeCount(
+        staking.length,
+        "board.total.items.one",
+        "board.total.items.other",
+        t,
+      ),
+    ),
+    cloneTemplate(
+      templates,
       3,
       spot,
       spot.length ? formatUsd(sumItemUsdValues(spot)) : "",
     ),
     cloneTemplate(
+      templates,
       4,
       vaults,
       vaults.length ? formatUsd(sumItemUsdValues(vaults)) : "",
     ),
     cloneTemplate(
+      templates,
       5,
       portfolioMargin,
-      summarizeCount(portfolioMargin.length, "item"),
+      summarizeCount(
+        portfolioMargin.length,
+        "board.total.items.one",
+        "board.total.items.other",
+        t,
+      ),
     ),
-    cloneTemplate(6, usdc, usdc.length ? formatUsd(sumItemUsdValues(usdc)) : ""),
+    cloneTemplate(
+      templates,
+      6,
+      usdc,
+      usdc.length ? formatUsd(sumItemUsdValues(usdc)) : "",
+    ),
   ];
 }
 
-export async function fetchWalletRecovery(
+export async function fetchWalletRecoveryData(
   user: `0x${string}`,
   signal?: AbortSignal,
 ) {
@@ -905,8 +1075,9 @@ export async function fetchWalletRecovery(
       ? await fetchDexCollateralTransfers(user, spotMeta, signal)
       : [];
 
-  return mapRecoveryColumns({
+  return {
     abstraction,
+    asOf: Date.now(),
     borrowLendState,
     delegations,
     delegatorSummary,
@@ -915,5 +1086,5 @@ export async function fetchWalletRecovery(
     spotMeta,
     vaultEquities,
     webData,
-  });
+  } satisfies WalletRecoveryResponse;
 }

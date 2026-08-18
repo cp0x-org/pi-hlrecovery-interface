@@ -1,5 +1,6 @@
 import { privateKeyToAccount } from "viem/accounts";
 import type { AbstractWallet } from "@nktkas/hyperliquid/signing";
+import { TranslatedError } from "@/lib/i18n";
 import {
   approveHyperliquidAgent,
   fetchHyperliquidAgentApproval,
@@ -199,9 +200,7 @@ export async function ensureApprovedSessionAgent(
   );
 
   if (!confirmedApproval) {
-    throw new Error(
-      "The session wallet was approved, but Hyperliquid did not report it as active yet. Try again in a moment.",
-    );
+    throw new TranslatedError("error.sessionAgentNotActive");
   }
 
   markSessionAgentApproved(ownerAddress, sessionAgent.address, agentName);

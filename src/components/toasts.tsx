@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useI18n } from "@/components/i18n-provider";
 
 type ToastVariant = "error" | "info" | "success";
 
@@ -41,6 +42,7 @@ const variantStyles: Record<ToastVariant, string> = {
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const dismissToast = useCallback((id: number) => {
@@ -73,7 +75,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div
+        aria-label={t("toast.region")}
         aria-live="polite"
+        role="region"
         className="fixed right-4 top-20 z-50 flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2 sm:right-6"
       >
         {toasts.map((toast) => (
@@ -105,6 +109,8 @@ function ToastItem({
   dismissToast: (id: number) => void;
   toast: Toast;
 }) {
+  const { t } = useI18n();
+
   useEffect(() => {
     if (toast.timeoutMs <= 0) {
       return;
@@ -121,7 +127,7 @@ function ToastItem({
   return (
     <div
       className={`rounded-lg border px-4 py-3 shadow-[0_18px_48px_rgba(0,0,0,0.32)] ${variantStyles[toast.variant]}`}
-      role={toast.variant === "error" ? "alert" : "status"}
+      role={toast.variant === "error" ? "alert" : undefined}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -133,12 +139,12 @@ function ToastItem({
           ) : null}
         </div>
         <button
-          aria-label="Close notification"
+          aria-label={t("toast.close", { title: toast.title })}
           className="rounded px-1.5 text-sm text-current opacity-70 transition hover:bg-white/5 hover:opacity-100"
           onClick={() => dismissToast(toast.id)}
           type="button"
         >
-          x
+          <span aria-hidden="true">x</span>
         </button>
       </div>
     </div>

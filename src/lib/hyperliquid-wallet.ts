@@ -1,5 +1,6 @@
 import type { AbstractWallet } from "@nktkas/hyperliquid/signing";
 import type { WalletClient } from "viem";
+import { TranslatedError } from "@/lib/i18n";
 
 type HyperliquidTypedDataParams = {
   domain: {
@@ -15,7 +16,7 @@ type HyperliquidTypedDataParams = {
 
 export function createHyperliquidWallet(walletClient: WalletClient): AbstractWallet {
   if (!walletClient.account?.address) {
-    throw new Error("Connected wallet is missing an account address.");
+    throw new TranslatedError("error.walletMissingAddress");
   }
 
   const account = walletClient.account;

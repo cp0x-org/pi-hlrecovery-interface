@@ -1,5 +1,7 @@
 # Hyperliquid Recovery Interface by cp0x
 
+Languages: [English](./README.md) | [中文](./README_CH.md)
+
 A permissionless interface for withdrawing assets from Hyperliquid — built for users whose addresses have been blocked from the official app.hyperliquid.xyz.
 
 Hyperliquid restricts access to its interface based on wallet addresses and geography. This interface interacts directly with the protocol's smart contracts, bypassing any frontend restrictions. No sign-ups, no geo-blocks, no middlemen.
