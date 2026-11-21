@@ -6,3 +6,5 @@
 *.log
 *.env
 .claude
+.pnpm-store/
+*.tsbuildinfo

@@ -149,6 +149,9 @@ export const zh: Record<MessageKey, string> = {
   "board.orders.type.stopLimit": "止损限价",
   "board.orders.type.takeProfitMarket": "止盈市价",
   "board.orders.type.takeProfitLimit": "止盈限价",
+  "board.orders.type.twapSlice": "TWAP 分片",
+  "board.orders.type.vaultClose": "金库平仓",
+  "board.orders.type.spotDustConversion": "现货零头转换",
   "board.orders.value": "{size} 挂单中",
 
   // Open position items

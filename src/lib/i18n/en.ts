@@ -155,6 +155,9 @@ export const en = {
   "board.orders.type.stopLimit": "Stop Limit",
   "board.orders.type.takeProfitMarket": "Take Profit Market",
   "board.orders.type.takeProfitLimit": "Take Profit Limit",
+  "board.orders.type.twapSlice": "TWAP Slice",
+  "board.orders.type.vaultClose": "Vault Close",
+  "board.orders.type.spotDustConversion": "Spot Dust Conversion",
   "board.orders.value": "{size} open",
 
   // Open position items

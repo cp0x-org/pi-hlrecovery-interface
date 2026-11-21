@@ -7,3 +7,5 @@ Dockerfile
 .env*
 .vscode
 .idea
+.pnpm-store
+*.tsbuildinfo
