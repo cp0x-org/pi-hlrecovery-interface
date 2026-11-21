@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Analytics } from "@vercel/analytics/next";
 import { Footer } from "@/components/footer";
 import { I18nProvider } from "@/components/i18n-provider";
 import { en } from "@/lib/i18n/en";
@@ -97,7 +96,6 @@ export default function RootLayout({
           <Providers>{children}</Providers>
           <Footer />
         </I18nProvider>
-        <Analytics />
       </body>
     </html>
   );

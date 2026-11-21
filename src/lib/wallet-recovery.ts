@@ -7,7 +7,6 @@ import type {
   PerpDexsResponse,
   SpotMetaResponse,
   UserAbstractionResponse,
-  UserDexAbstractionResponse,
   UserVaultEquitiesResponse,
   WebData2Response,
 } from "@nktkas/hyperliquid/api/info";
@@ -40,7 +39,6 @@ export type WalletRecoveryResponse = {
   delegations: DelegationsResponse;
   delegatorSummary: DelegatorSummaryResponse;
   abstraction: UserAbstractionResponse;
-  dexAbstraction: UserDexAbstractionResponse;
   dexCollateralTransfers: DexCollateralTransfer[];
   spotMeta: SpotMetaResponse;
 };
@@ -342,15 +340,11 @@ function getTokenSpotBalances(webData: WebData2Response): TokenSpotBalance[] {
   );
 }
 
-function usesDexAbstraction(
-  abstraction: UserAbstractionResponse,
-  dexAbstraction: UserDexAbstractionResponse,
-) {
-  // SDK 0.33 dropped "dexAbstraction" from the response type; keep the
-  // runtime check in case older accounts still report it.
-  return (
-    dexAbstraction === true || (abstraction as string) === "dexAbstraction"
-  );
+function usesDexAbstraction(abstraction: UserAbstractionResponse) {
+  // Hyperliquid removed the `userDexAbstraction` info request and SDK 0.33
+  // dropped "dexAbstraction" from this type; keep the runtime check in case
+  // older accounts still report it.
+  return (abstraction as string) === "dexAbstraction";
 }
 
 function getOrderTypeLabel(
@@ -841,7 +835,6 @@ function buildStakingItems(
 function buildUsdcItems(
   webData: WebData2Response,
   abstraction: UserAbstractionResponse,
-  dexAbstraction: UserDexAbstractionResponse,
   dexCollateralTransfers: DexCollateralTransfer[],
   t: Translate,
 ): RecoveryItem[] {
@@ -861,7 +854,7 @@ function buildUsdcItems(
   const netWithdrawable = Math.max(withdrawable - WITHDRAWAL_FEE_USDC, 0);
   const withdrawAmount = toOrderNumberString(netWithdrawable);
 
-  if (usesDexAbstraction(abstraction, dexAbstraction)) {
+  if (usesDexAbstraction(abstraction)) {
     for (const transfer of dexCollateralTransfers) {
       const transferToSpot = transfer.tokenName !== "USDC";
 
@@ -992,7 +985,6 @@ export function mapWalletRecovery(
   const usdc = buildUsdcItems(
     response.webData,
     response.abstraction,
-    response.dexAbstraction,
     response.dexCollateralTransfers,
     t,
   );
@@ -1088,7 +1080,6 @@ export async function fetchWalletRecoveryData(
     delegatorSummary,
     delegations,
     abstraction,
-    dexAbstraction,
     spotMeta,
   ] = await Promise.all([
     client.webData2({ user }, signal),
@@ -1097,20 +1088,11 @@ export async function fetchWalletRecoveryData(
     client.delegatorSummary({ user }, signal),
     client.delegations({ user }, signal),
     client.userAbstraction({ user }, signal),
-    // Hyperliquid stopped serving this info type (returns 422). `userAbstraction`
-    // already reports the account mode, so treat this request as optional.
-    client
-      .userDexAbstraction({ user }, signal)
-      .catch((error: unknown): UserDexAbstractionResponse => {
-        console.warn("userDexAbstraction request failed, ignoring:", error);
-        return null;
-      }),
     client.spotMeta(signal),
   ]);
-  const dexCollateralTransfers =
-    usesDexAbstraction(abstraction, dexAbstraction)
-      ? await fetchDexCollateralTransfers(user, spotMeta, signal)
-      : [];
+  const dexCollateralTransfers = usesDexAbstraction(abstraction)
+    ? await fetchDexCollateralTransfers(user, spotMeta, signal)
+    : [];
 
   return {
     abstraction,
@@ -1118,7 +1100,6 @@ export async function fetchWalletRecoveryData(
     borrowLendState,
     delegations,
     delegatorSummary,
-    dexAbstraction,
     dexCollateralTransfers,
     spotMeta,
     vaultEquities,
