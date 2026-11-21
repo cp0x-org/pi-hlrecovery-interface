@@ -1,12 +1,16 @@
 FROM node:22-alpine AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN npm install -g pnpm@11.5.2
 
 # ── deps: install production + dev dependencies ──────────────────────────────
 FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 
 # ── builder: compile the Next.js app ─────────────────────────────────────────
 FROM base AS builder
@@ -17,7 +21,7 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN npm run build
+RUN pnpm run build
 
 # ── runner: minimal production image ─────────────────────────────────────────
 FROM base AS runner
