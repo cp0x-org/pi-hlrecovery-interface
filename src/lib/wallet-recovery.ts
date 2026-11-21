@@ -329,6 +329,30 @@ function buildMarketOrder({
   }
 }
 
+type SpotBalance = NonNullable<
+  WebData2Response["spotState"]
+>["balances"][number];
+type TokenSpotBalance = Extract<SpotBalance, { token: number }>;
+
+// Outcome-market balances (`+N` / `oN` coins) have no spot token id and
+// cannot be sold through a spot market, so they are excluded.
+function getTokenSpotBalances(webData: WebData2Response): TokenSpotBalance[] {
+  return (webData.spotState?.balances ?? []).filter(
+    (balance): balance is TokenSpotBalance => "token" in balance,
+  );
+}
+
+function usesDexAbstraction(
+  abstraction: UserAbstractionResponse,
+  dexAbstraction: UserDexAbstractionResponse,
+) {
+  // SDK 0.33 dropped "dexAbstraction" from the response type; keep the
+  // runtime check in case older accounts still report it.
+  return (
+    dexAbstraction === true || (abstraction as string) === "dexAbstraction"
+  );
+}
+
 function getOrderTypeLabel(
   orderType: WebData2Response["openOrders"][number]["orderType"],
   t: Translate,
@@ -346,6 +370,12 @@ function getOrderTypeLabel(
       return t("board.orders.type.takeProfitMarket");
     case "Take Profit Limit":
       return t("board.orders.type.takeProfitLimit");
+    case "Twap Slice":
+      return t("board.orders.type.twapSlice");
+    case "Vault Close":
+      return t("board.orders.type.vaultClose");
+    case "Spot Dust Conversion":
+      return t("board.orders.type.spotDustConversion");
   }
 }
 
@@ -500,7 +530,7 @@ function buildSpotItems(
   spotMeta: SpotMetaResponse,
   t: Translate,
 ): RecoveryItem[] {
-  return (webData.spotState?.balances ?? [])
+  return getTokenSpotBalances(webData)
     .filter((balance) => balance.coin !== "USDC")
     .map((balance) => {
       const spotMarket = findUsdcSpotMarket(spotMeta, balance.token);
@@ -626,7 +656,7 @@ function buildPortfolioMarginItems(
     spotMeta.tokens.map((token) => [token.index, token.name]),
   );
   const availableBalanceByToken = new Map(
-    (webData.spotState?.balances ?? []).map((balance) => [
+    getTokenSpotBalances(webData).map((balance) => [
       balance.token,
       Math.max(toNumber(balance.total) - toNumber(balance.hold), 0),
     ]),
@@ -831,7 +861,7 @@ function buildUsdcItems(
   const netWithdrawable = Math.max(withdrawable - WITHDRAWAL_FEE_USDC, 0);
   const withdrawAmount = toOrderNumberString(netWithdrawable);
 
-  if (dexAbstraction || abstraction === "dexAbstraction") {
+  if (usesDexAbstraction(abstraction, dexAbstraction)) {
     for (const transfer of dexCollateralTransfers) {
       const transferToSpot = transfer.tokenName !== "USDC";
 
@@ -1067,11 +1097,18 @@ export async function fetchWalletRecoveryData(
     client.delegatorSummary({ user }, signal),
     client.delegations({ user }, signal),
     client.userAbstraction({ user }, signal),
-    client.userDexAbstraction({ user }, signal),
+    // Hyperliquid stopped serving this info type (returns 422). `userAbstraction`
+    // already reports the account mode, so treat this request as optional.
+    client
+      .userDexAbstraction({ user }, signal)
+      .catch((error: unknown): UserDexAbstractionResponse => {
+        console.warn("userDexAbstraction request failed, ignoring:", error);
+        return null;
+      }),
     client.spotMeta(signal),
   ]);
   const dexCollateralTransfers =
-    abstraction === "dexAbstraction" || dexAbstraction
+    usesDexAbstraction(abstraction, dexAbstraction)
       ? await fetchDexCollateralTransfers(user, spotMeta, signal)
       : [];
 

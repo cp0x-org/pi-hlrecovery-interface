@@ -368,7 +368,15 @@ export default function Home() {
   const recoveryQuery = useQuery({
     enabled: showRecoveryBoard,
     queryFn: ({ signal }) =>
-      fetchWalletRecoveryData(activeAddress as `0x${string}`, signal),
+      fetchWalletRecoveryData(activeAddress as `0x${string}`, signal).catch(
+        (error: unknown) => {
+          if (!signal.aborted) {
+            console.error("Hyperliquid account scan failed:", error);
+          }
+
+          throw error;
+        },
+      ),
     queryKey: ["wallet-recovery", activeAddress],
     staleTime: 15_000,
   });

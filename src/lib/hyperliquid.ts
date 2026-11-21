@@ -40,13 +40,18 @@ export async function fetchHyperliquidAgentApproval(
   const agents = await info.extraAgents({ user: ownerAddress });
   const normalizedAgentAddress = agentAddress.toLowerCase();
 
-  return (
-    agents.find(
-      (agent) =>
-        agent.address.toLowerCase() === normalizedAgentAddress &&
-        agent.validUntil > Date.now(),
-    ) ?? null
+  // Session agents are always approved with an expiry, so agents without one
+  // (`validUntil: null`) are not treated as an active session approval.
+  const approval = agents.find(
+    (agent) =>
+      agent.address.toLowerCase() === normalizedAgentAddress &&
+      agent.validUntil !== null &&
+      agent.validUntil > Date.now(),
   );
+
+  return approval?.validUntil != null
+    ? { ...approval, validUntil: approval.validUntil }
+    : null;
 }
 
 export async function cancelHyperliquidOrders(
